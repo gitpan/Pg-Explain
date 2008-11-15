@@ -1,0 +1,27 @@
+---
+name: Pg-Explain
+version: 0.06
+author:
+  - 'hubert depesz lubaczewski <depesz@depesz.com>'
+abstract: Object approach at reading explain analyze output
+license: perl
+resources:
+  license: http://dev.perl.org/licenses/
+requires:
+  Moose: 0
+build_requires:
+  Test::Deep: 0
+  Test::Exception: 0
+  Test::More: 0
+  autodie: 0
+provides:
+  Pg::Explain:
+    file: lib/Pg/Explain.pm
+    version: 0.06
+  Pg::Explain::Node:
+    file: lib/Pg/Explain/Node.pm
+    version: 0.06
+generated_by: Module::Build version 0.3
+meta-spec:
+  url: http://module-build.sourceforge.net/META-spec-v1.2.html
+  version: 1.2
