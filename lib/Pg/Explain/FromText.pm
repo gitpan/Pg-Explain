@@ -9,11 +9,11 @@ Pg::Explain::FromText - Parser for text based explains
 
 =head1 VERSION
 
-Version 0.53
+Version 0.54
 
 =cut
 
-our $VERSION = '0.53';
+our $VERSION = '0.54';
 
 =head1 SYNOPSIS
 
@@ -59,7 +59,7 @@ sub parse_source {
             my @catch =
             $line =~ m{
                 \A
-                (\s* (?:->)? \s*)
+                (\s* -> \s* | \s* )
                 (\S.*?)
                 \s+
                 \( cost=(\d+\.\d+)\.\.(\d+\.\d+) \s+ rows=(\d+) \s+ width=(\d+) \)
