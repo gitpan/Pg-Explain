@@ -2,6 +2,7 @@ package Pg::Explain;
 use strict;
 use autodie;
 use Carp;
+use Pg::Explain::StringAnonymizer;
 
 =head1 NAME
 
@@ -9,11 +10,11 @@ Pg::Explain - Object approach at reading explain analyze output
 
 =head1 VERSION
 
-Version 0.54
+Version 0.60
 
 =cut
 
-our $VERSION = '0.54';
+our $VERSION = '0.60';
 
 =head1 SYNOPSIS
 
@@ -185,6 +186,37 @@ sub _read_source_from_file {
 
     delete $self->{ 'source_file' };
     $self->{ 'source' } = $content;
+
+    return;
+}
+
+=head2 as_text
+
+Returns parsed plan back as plain text format (regenerated from in-memory structure).
+
+This is mostly useful for (future at the moment) anonymizations.
+
+=cut
+
+sub as_text {
+    my $self = shift;
+    return $self->top_node->as_text( );
+}
+
+=head2 anonymize
+
+Used to remove all individual values from the explain, while still retaining
+all values that are needed to see what's wrong.
+
+=cut
+
+sub anonymize {
+    my $self = shift;
+
+    my $anonymizer = Pg::Explain::StringAnonymizer->new();
+    $self->top_node->anonymize_gathering( $anonymizer );
+    $anonymizer->finalize();
+    $self->top_node->anonymize_substitute( $anonymizer );
 
     return;
 }

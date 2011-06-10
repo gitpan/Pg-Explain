@@ -9,7 +9,7 @@ use Pg::Explain;
 
 my @tests = @ARGV;
 if (0 == scalar @tests) {
-    opendir( my $dir, 't/82-yaml-plans/' );
+    opendir( my $dir, 't/15-yaml-plans/' );
 
     my %uniq = ();
     @tests = sort { $a <=> $b }
@@ -26,7 +26,7 @@ for my $test ( @tests ) {
 
     print STDERR 'Working on test ' . $test . "\n" if  $ENV{'DEBUG_TESTS'};
 
-    my $plan_file = 't/82-yaml-plans/' . $test . '.yaml';
+    my $plan_file = 't/15-yaml-plans/' . $test . '.yaml';
 
     my $explain = Pg::Explain->new( 'source_file' => $plan_file );
     isa_ok( $explain, 'Pg::Explain' );
@@ -44,7 +44,7 @@ exit;
 sub get_expected_from_file {
     my $test_no = shift;
 
-    my $filename = 't/82-yaml-plans/' . $test_no . '.expect';
+    my $filename = 't/15-yaml-plans/' . $test_no . '.expect';
 
     open my $fh, '<', $filename;
     local $/ = undef;

@@ -1,6 +1,7 @@
 package Pg::Explain::Node;
 use strict;
 use Clone qw( clone );
+use HOP::Lexer qw( string_lexer );
 use Carp;
 use warnings;
 use strict;
@@ -11,11 +12,11 @@ Pg::Explain::Node - Class representing single node from query plan
 
 =head1 VERSION
 
-Version 0.54
+Version 0.60
 
 =cut
 
-our $VERSION = '0.54';
+our $VERSION = '0.60';
 
 =head1 SYNOPSIS
 
@@ -77,7 +78,7 @@ This cost is measured in units of "single-page seq scan".
 
 =head2 type
 
-Textuuual representation of type of current node. Some types for example:
+Textual representation of type of current node. Some types for example:
 
 =over
 
@@ -492,6 +493,272 @@ sub is_analyzed {
     return defined $self->actual_loops || $self->never_executed ? 1 : 0;
 }
 
+=head2 as_text
+
+Returns textual representation of explain nodes from given node down.
+
+This is used to build textual explains out of in-memory data structures.
+
+=cut
+
+sub as_text {
+    my $self   = shift;
+    my $prefix = shift;
+    $prefix = '' unless defined $prefix;
+
+    $prefix .= '->  ' if '' ne $prefix;
+    my $prefix_on_spaces = $prefix . "  ";
+    $prefix_on_spaces =~ s/[^ ]/ /g;
+
+    my $heading_line = $self->type;
+
+    if ( $self->scan_on ) {
+        my $S = $self->scan_on;
+        if ( $S->{ 'cte_name' } ) {
+            $heading_line .= " on " . $S->{ 'cte_name' };
+            $heading_line .= " " . $S->{ 'cte_alias' } if $S->{ 'cte_alias' };
+        }
+        elsif ( $S->{ 'index_name' } ) {
+            if ( $S->{ 'table_name' } ) {
+                $heading_line .= " using " . $S->{ 'index_name' } . " on " . $S->{ 'table_name' };
+                $heading_line .= " " . $S->{ 'table_alias' } if $S->{ 'table_alias' };
+            }
+            else {
+                $heading_line .= " on " . $S->{ 'index_name' };
+            }
+        }
+        else {
+            $heading_line .= " on " . $S->{ 'table_name' };
+            $heading_line .= " " . $S->{ 'table_alias' } if $S->{ 'table_alias' };
+        }
+    }
+    $heading_line .= sprintf '  (cost=%.3f..%.3f rows=%d width=%d)', $self->estimated_startup_cost, $self->estimated_total_cost, $self->estimated_rows, $self->estimated_row_width;
+    if ( $self->is_analyzed ) {
+        my $inner;
+        if ( 0 == $self->{ 'actual_loops' } ) {
+            $inner = 'never executed';
+        }
+        else {
+            $inner = sprintf 'actual time=%.3f..%.3f rows=%d loops=%d', $self->actual_time_first, $self->actual_time_last, $self->actual_rows, $self->actual_loops;
+        }
+        $heading_line .= " ($inner)";
+    }
+
+    my @lines = ();
+
+    push @lines, $prefix . $heading_line;
+    if ( $self->extra_info ) {
+        push @lines, $prefix_on_spaces . "  " . $_ for @{ $self->extra_info };
+    }
+    my $textual = join( "\n", @lines ) . "\n";
+
+
+    if ( $self->cte_order ) {
+        for my $cte_name ( @{ $self->cte_order } ) {
+            $textual .= $prefix_on_spaces . "CTE " . $cte_name . "\n";
+            $textual .= $self->cte( $cte_name )->as_text( $prefix_on_spaces . "    " );
+        }
+    }
+
+    if ( $self->initplans ) {
+        for my $ip ( @{ $self->initplans } ) {
+            $textual .= $prefix_on_spaces . "InitPlan\n";
+            $textual .= $ip->as_text( $prefix_on_spaces . "  " );
+        }
+    }
+    if ( $self->sub_nodes ) {
+        $textual .= $_->as_text( $prefix_on_spaces ) for @{ $self->sub_nodes };
+    }
+    if ( $self->subplans ) {
+        for my $ip ( @{ $self->subplans } ) {
+            $textual .= $prefix_on_spaces . "SubPlan\n";
+            $textual .= $ip->as_text( $prefix_on_spaces . "  " );
+        }
+    }
+    return $textual;
+}
+
+=head2 anonymize_gathering
+
+First stage of anonymization - gathering of all possible strings that could and should be anonymized.
+
+=cut
+
+sub anonymize_gathering {
+    my $self = shift;
+    my $anonymizer = shift;
+
+    if ($self->scan_on) {
+        $anonymizer->add( values %{ $self->scan_on } );
+    }
+
+    if ($self->extra_info) {
+        for my $line ( @{ $self->extra_info } ) {
+            my $copy = $line;
+            next unless $copy =~ s{^((?:Join Filter|Index Cond|Recheck Cond|Hash Cond|Merge Cond|Filter|Sort Key):\s+)(.*)$}{$2};
+            my $prefix = $1;
+            my $lexer = $self->_make_lexer( $copy );
+            while ( my $x = $lexer->() ) {
+                next unless ref $x;
+                $anonymizer->add( $x->[1] ) if $x->[0] =~ m{\A (?: STRING_LITERAL | QUOTED_IDENTIFIER | IDENTIFIER ) \z}x;
+            }
+        }
+    }
+
+    for my $key (qw( sub_nodes initplans subplans ) ) {
+        next unless $self->{$key};
+        $_->anonymize_gathering( $anonymizer ) for @{ $self->{$key} };
+    }
+
+    if ($self->{'ctes'}) {
+        $_->anonymize_gathering( $anonymizer ) for values %{ $self->{'ctes'} };
+    }
+    return;
+}
+
+=head2 _make_lexer
+
+Helper function which creates HOP::Lexer based lexer for given line of input
+
+=cut
+
+sub _make_lexer {
+    my $self = shift;
+    my $data = shift;
+    my @input_tokens = (
+        [ 'STRING_LITERAL',    qr{'(?:''|[^']+)+'} ],
+        [ 'QUOTED_IDENTIFIER', qr{"(?:""|[^"]+)+"} ],
+        [ 'AND',               qr{\bAND\b}i ],
+        [ 'ANY',               qr{\bANY\b}i ],
+        [ 'ARRAY',             qr{\bARRAY\b}i ],
+        [ 'AS',                qr{\bAS\b}i ],
+        [ 'ASC',               qr{\bASC\b}i ],
+        [ 'CASE',              qr{\bCASE\b}i ],
+        [ 'CAST',              qr{\bCAST\b}i ],
+        [ 'CHECK',             qr{\bCHECK\b}i ],
+        [ 'COLLATE',           qr{\bCOLLATE\b}i ],
+        [ 'COLUMN',            qr{\bCOLUMN\b}i ],
+        [ 'CURRENT_CATALOG',   qr{\bCURRENT_CATALOG\b}i ],
+        [ 'CURRENT_DATE',      qr{\bCURRENT_DATE\b}i ],
+        [ 'CURRENT_ROLE',      qr{\bCURRENT_ROLE\b}i ],
+        [ 'CURRENT_TIME',      qr{\bCURRENT_TIME\b}i ],
+        [ 'CURRENT_TIMESTAMP', qr{\bCURRENT_TIMESTAMP\b}i ],
+        [ 'CURRENT_USER',      qr{\bCURRENT_USER\b}i ],
+        [ 'DEFAULT',           qr{\bDEFAULT\b}i ],
+        [ 'DESC',              qr{\bDESC\b}i ],
+        [ 'DISTINCT',          qr{\bDISTINCT\b}i ],
+        [ 'DO',                qr{\bDO\b}i ],
+        [ 'ELSE',              qr{\bELSE\b}i ],
+        [ 'END',               qr{\bEND\b}i ],
+        [ 'EXCEPT',            qr{\bEXCEPT\b}i ],
+        [ 'FALSE',             qr{\bFALSE\b}i ],
+        [ 'FETCH',             qr{\bFETCH\b}i ],
+        [ 'FOR',               qr{\bFOR\b}i ],
+        [ 'FOREIGN',           qr{\bFOREIGN\b}i ],
+        [ 'FROM',              qr{\bFROM\b}i ],
+        [ 'IN',                qr{\bIN\b}i ],
+        [ 'INITIALLY',         qr{\bINITIALLY\b}i ],
+        [ 'INTERSECT',         qr{\bINTERSECT\b}i ],
+        [ 'INTO',              qr{\bINTO\b}i ],
+        [ 'LEADING',           qr{\bLEADING\b}i ],
+        [ 'LIMIT',             qr{\bLIMIT\b}i ],
+        [ 'LOCALTIME',         qr{\bLOCALTIME\b}i ],
+        [ 'LOCALTIMESTAMP',    qr{\bLOCALTIMESTAMP\b}i ],
+        [ 'NOT',               qr{\bNOT\b}i ],
+        [ 'NULL',              qr{\bNULL\b}i ],
+        [ 'OFFSET',            qr{\bOFFSET\b}i ],
+        [ 'ON',                qr{\bON\b}i ],
+        [ 'ONLY',              qr{\bONLY\b}i ],
+        [ 'OR',                qr{\bOR\b}i ],
+        [ 'ORDER',             qr{\bORDER\b}i ],
+        [ 'PLACING',           qr{\bPLACING\b}i ],
+        [ 'PRIMARY',           qr{\bPRIMARY\b}i ],
+        [ 'REFERENCES',        qr{\bREFERENCES\b}i ],
+        [ 'RETURNING',         qr{\bRETURNING\b}i ],
+        [ 'SESSION_USER',      qr{\bSESSION_USER\b}i ],
+        [ 'SOME',              qr{\bSOME\b}i ],
+        [ 'SYMMETRIC',         qr{\bSYMMETRIC\b}i ],
+        [ 'THEN',              qr{\bTHEN\b}i ],
+        [ 'TO',                qr{\bTO\b}i ],
+        [ 'TRAILING',          qr{\bTRAILING\b}i ],
+        [ 'TRUE',              qr{\bTRUE\b}i ],
+        [ 'UNION',             qr{\bUNION\b}i ],
+        [ 'UNIQUE',            qr{\bUNIQUE\b}i ],
+        [ 'USER',              qr{\bUSER\b}i ],
+        [ 'USING',             qr{\bUSING\b}i ],
+        [ 'WHEN',              qr{\bWHEN\b}i ],
+        [ 'WHERE',             qr{\bWHERE\b}i ],
+        [ 'CAST:',             qr{::}i ],
+        [ 'COMMA',             qr{,}i ],
+        [ 'DOT',               qr{\.}i ],
+        [ 'LEFT_PARENTHESIS',  qr{\(}i ],
+        [ 'RIGHT_PARENTHESIS', qr{\)}i ],
+        [ 'DOT',               qr{\.}i ],
+        [ 'STAR',              qr{[*]} ],
+        [ 'OP',                qr{[+=/<>!~@-]} ],
+        [ 'NUM',               qr{-?(?:\d*\.\d+|\d+)} ],
+        [ 'IDENTIFIER',        qr{[a-z_][a-z0-9_]*}i ],
+        [ 'SPACE',             qr{\s+} ],
+    );
+    return string_lexer( $data, @input_tokens );
+}
+
+=head2 anonymize_substitute
+
+Second stage of anonymization - actual changing strings into anonymized versions.
+
+=cut
+
+sub anonymize_substitute {
+    my $self = shift;
+    my $anonymizer = shift;
+
+    if ($self->scan_on) {
+        while ( my ($key, $value) = each %{ $self->scan_on } ) {
+            $self->scan_on->{$key} = $anonymizer->anonymized( $value );
+        }
+    }
+    if ($self->extra_info) {
+        my @new_extra_info = ();
+        for my $line ( @{ $self->extra_info } ) {
+            unless ( $line =~ s{^((?:Join Filter|Index Cond|Recheck Cond|Hash Cond|Merge Cond|Filter|Sort Key):\s+)(.*)$}{$2} ) {
+                push @new_extra_info, $line;
+                next;
+            }
+            my $output = $1;
+            my $lexer = $self->_make_lexer( $line );
+            while ( my $x = $lexer->() ) {
+                if (ref $x) {
+                    if ( $x->[0] eq 'STRING_LITERAL' ) {
+                        $output .= "'" . $anonymizer->anonymized( $x->[1] ) . "'";
+                    } elsif ( $x->[0] eq 'QUOTED_IDENTIFIER' ) {
+                        $output .= '"' . $anonymizer->anonymized( $x->[1] ) . '"';
+                    } elsif ( $x->[0] eq 'IDENTIFIER' ) {
+                        $output .= $anonymizer->anonymized( $x->[1] );
+                    } else {
+                        $output .= $x->[1];
+                    }
+                } else {
+                    $output .= $x;
+                }
+            }
+            push @new_extra_info, $output;
+        }
+        $self->{'extra_info'} = \@new_extra_info;
+    }
+
+
+    for my $key (qw( sub_nodes initplans subplans ) ) {
+        next unless $self->{$key};
+        $_->anonymize_substitute( $anonymizer ) for @{ $self->{$key} };
+    }
+
+    if ($self->{'ctes'}) {
+        $_->anonymize_substitute( $anonymizer ) for values %{ $self->{'ctes'} };
+    }
+    return;
+}
+
 =head1 AUTHOR
 
 hubert depesz lubaczewski, C<< <depesz at depesz.com> >>
@@ -512,7 +779,6 @@ Copyright 2008 hubert depesz lubaczewski, all rights reserved.
 
 This program is free software; you can redistribute it and/or modify it
 under the same terms as Perl itself.
-
 
 =cut
 

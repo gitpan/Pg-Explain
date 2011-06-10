@@ -9,13 +9,17 @@ use Pg::Explain;
 
 my @tests = @ARGV;
 if (0 == scalar @tests) {
-    opendir( my $dir, 't/81-json-plans/' );
+    opendir( my $dir, 't/16-ctes/' );
 
     my %uniq = ();
-    @tests = sort { $a <=> $b }
+    @tests = sort {
+            $a =~ /(\d+)/; my $i1 = $1;
+            $b =~ /(\d+)/; my $i2 = $1;
+            $i1 <=> $i2
+        }
         grep { !$uniq{ $_ }++ }
         map { s/\..*//; $_ }
-        grep { /^\d+\.(?:expect|json)$/ } readdir $dir;
+        grep { /^\d+-[a-z]+\.(?:expect|plan)$/ } readdir $dir;
 
     closedir $dir;
 }
@@ -26,7 +30,7 @@ for my $test ( @tests ) {
 
     print STDERR 'Working on test ' . $test . "\n" if  $ENV{'DEBUG_TESTS'};
 
-    my $plan_file = 't/81-json-plans/' . $test . '.json';
+    my $plan_file = 't/16-ctes/' . $test . '.plan';
 
     my $explain = Pg::Explain->new( 'source_file' => $plan_file );
     isa_ok( $explain, 'Pg::Explain' );
@@ -44,7 +48,7 @@ exit;
 sub get_expected_from_file {
     my $test_no = shift;
 
-    my $filename = 't/81-json-plans/' . $test_no . '.expect';
+    my $filename = 't/16-ctes/' . $test_no . '.expect';
 
     open my $fh, '<', $filename;
     local $/ = undef;
