@@ -10,11 +10,11 @@ Pg::Explain::FromJSON - Parser for explains in JSON format
 
 =head1 VERSION
 
-Version 0.62
+Version 0.63
 
 =cut
 
-our $VERSION = '0.62';
+our $VERSION = '0.63';
 
 =head1 SYNOPSIS
 
@@ -44,7 +44,7 @@ sub parse_source {
 
     my $struct = from_json( $source );
 
-    my $top_node = $self->make_node_from( $struct->[0]->{'Plan'} );
+    my $top_node = $self->make_node_from( $struct->[ 0 ]->{ 'Plan' } );
 
     return $top_node;
 }

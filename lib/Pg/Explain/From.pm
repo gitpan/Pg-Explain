@@ -9,11 +9,11 @@ Pg::Explain::From - Base class for parsers of non-text explain formats.
 
 =head1 VERSION
 
-Version 0.62
+Version 0.63
 
 =cut
 
-our $VERSION = '0.62';
+our $VERSION = '0.63';
 
 =head1 SYNOPSIS
 
@@ -114,7 +114,8 @@ sub make_node_from {
                 'index_name'  => $struct->{ 'Index Name' },
             }
         );
-    } elsif ( $struct->{'Node Type' } eq 'CTE Scan' ) {
+    }
+    elsif ( $struct->{ 'Node Type' } eq 'CTE Scan' ) {
         $new_node->scan_on(
             {
                 'cte_name'  => $struct->{ 'CTE Name' },
@@ -137,9 +138,10 @@ sub make_node_from {
         for my $subplan ( @plans ) {
             my $subnode = $self->make_node_from( $subplan );
             if ( $subplan->{ 'Parent Relationship' } eq 'InitPlan' ) {
-                if ( $subplan->{'Subplan Name'} =~ m{ \A \s* CTE \s+ (\S+) \s* \z }xsm ) {
+                if ( $subplan->{ 'Subplan Name' } =~ m{ \A \s* CTE \s+ (\S+) \s* \z }xsm ) {
                     $new_node->add_cte( $1, $subnode );
-                } else {
+                }
+                else {
                     $new_node->add_initplan( $subnode );
                 }
             }

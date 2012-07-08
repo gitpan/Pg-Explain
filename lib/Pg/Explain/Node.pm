@@ -12,11 +12,11 @@ Pg::Explain::Node - Class representing single node from query plan
 
 =head1 VERSION
 
-Version 0.62
+Version 0.63
 
 =cut
 
-our $VERSION = '0.62';
+our $VERSION = '0.63';
 
 =head1 SYNOPSIS
 
@@ -205,7 +205,7 @@ sub new {
     croak( 'estimated_total_cost has to be passed to constructor of explain node' )   unless defined $self->estimated_total_cost;
     croak( 'type has to be passed to constructor of explain node' )                   unless defined $self->type;
 
-    if ( $self->type =~ m{ \A ( Seq \s Scan | Bitmap \s+ Heap \s+ Scan) \s on \s (\S+) (?: \s+ (\S+) ) ? \z }xms ) {
+    if ( $self->type =~ m{ \A ( Seq \s Scan | Bitmap \s+ Heap \s+ Scan | Foreign \s+ Scan ) \s on \s (\S+) (?: \s+ (\S+) ) ? \z }xms ) {
         $self->type( $1 );
         $self->scan_on( { 'table_name' => $2, } );
         $self->scan_on->{ 'table_alias' } = $3 if defined $3;
@@ -594,7 +594,11 @@ sub anonymize_gathering {
     if ( $self->extra_info ) {
         for my $line ( @{ $self->extra_info } ) {
             my $copy = $line;
-            next unless $copy =~ s{^((?:Join Filter|Index Cond|Recheck Cond|Hash Cond|Merge Cond|Filter|Sort Key):\s+)(.*)$}{$2};
+            if ( $copy =~ m{^Foreign File:\s+(\S.*?)\s*$} ) {
+                $anonymizer->add( $1 );
+                next;
+            }
+            next unless $copy =~ s{^((?:Join Filter|Index Cond|Recheck Cond|Hash Cond|Merge Cond|Filter|Sort Key|Output):\s+)(.*)$}{$2};
             my $prefix = $1;
             my $lexer  = $self->_make_lexer( $copy );
             while ( my $x = $lexer->() ) {
@@ -669,7 +673,8 @@ sub _make_lexer {
     # print = $q->list2re( @_ );
     # It is faster than normal alternative regexp like:
     # (?:timestamp without time zone|timestamp with time zone|time without time zone|....|xid|xml)
-    my $any_pgtype = qr{(?-xism:(?=[abcdfgilmnoprstuvx])(?:t(?:i(?:me(?:stamp(?:\ with(?:out)?\ time\ zone|tz)?|\ with(?:out)?\ time\ zone|tz)?|nterval|d)|s(?:(?:tz)?range|vector|query)|(?:xid_snapsho|ex)t|rigger)|c(?:har(?:acter(?:\ varying)?)?|i(?:dr?|rcle)|string)|d(?:ate(?:range)?|ouble\ precision)|l(?:anguage_handler|ine|seg)|re(?:g(?:proc(?:edure)?|oper(?:ator)?|c(?:onfig|lass)|dictionary|type)|fcursor|ltime|cord|al)|p(?:o(?:lygon|int)|g_node_tree|ath)|a(?:ny(?:e(?:lement|num)|(?:non)?array|range)?|bstime|clitem)|b(?:i(?:t(?:\ varying)?|gint)|o(?:ol(?:ean)?|x)|pchar|ytea)|f(?:loat[48]|dw_handler)|in(?:t(?:2(?:vector)?|4(?:range)?|8(?:range)?|e(?:r[nv]al|ger))|et)|o(?:id(?:vector)?|paque)|n(?:um(?:range|eric)|ame)|sm(?:allint|gr)|m(?:acaddr|oney)|u(?:nknown|uid)|v(?:ar(?:char|bit)|oid)|x(?:id|ml)|gtsvector))};
+    my $any_pgtype =
+qr{(?-xism:(?=[abcdfgilmnoprstuvx])(?:t(?:i(?:me(?:stamp(?:\ with(?:out)?\ time\ zone|tz)?|\ with(?:out)?\ time\ zone|tz)?|nterval|d)|s(?:(?:tz)?range|vector|query)|(?:xid_snapsho|ex)t|rigger)|c(?:har(?:acter(?:\ varying)?)?|i(?:dr?|rcle)|string)|d(?:ate(?:range)?|ouble\ precision)|l(?:anguage_handler|ine|seg)|re(?:g(?:proc(?:edure)?|oper(?:ator)?|c(?:onfig|lass)|dictionary|type)|fcursor|ltime|cord|al)|p(?:o(?:lygon|int)|g_node_tree|ath)|a(?:ny(?:e(?:lement|num)|(?:non)?array|range)?|bstime|clitem)|b(?:i(?:t(?:\ varying)?|gint)|o(?:ol(?:ean)?|x)|pchar|ytea)|f(?:loat[48]|dw_handler)|in(?:t(?:2(?:vector)?|4(?:range)?|8(?:range)?|e(?:r[nv]al|ger))|et)|o(?:id(?:vector)?|paque)|n(?:um(?:range|eric)|ame)|sm(?:allint|gr)|m(?:acaddr|oney)|u(?:nknown|uid)|v(?:ar(?:char|bit)|oid)|x(?:id|ml)|gtsvector))};
 
     my @input_tokens = (
         [ 'STRING_LITERAL',    qr{'(?:''|[^']+)+'} ],
@@ -768,7 +773,11 @@ sub anonymize_substitute {
     if ( $self->extra_info ) {
         my @new_extra_info = ();
         for my $line ( @{ $self->extra_info } ) {
-            unless ( $line =~ s{^((?:Join Filter|Index Cond|Recheck Cond|Hash Cond|Merge Cond|Filter|Sort Key):\s+)(.*)$}{$2} ) {
+            if ( $line =~ m{^(Foreign File:\s+)(\S.*?)(\s*)$} ) {
+                push @new_extra_info, $1 . $anonymizer->anonymized( $2 ) . $3;
+                next;
+            }
+            unless ( $line =~ s{^((?:Join Filter|Index Cond|Recheck Cond|Hash Cond|Merge Cond|Filter|Sort Key|Output):\s+)(.*)$}{$2} ) {
                 push @new_extra_info, $line;
                 next;
             }

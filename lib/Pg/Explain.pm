@@ -10,11 +10,11 @@ Pg::Explain - Object approach at reading explain analyze output
 
 =head1 VERSION
 
-Version 0.62
+Version 0.63
 
 =cut
 
-our $VERSION = '0.62';
+our $VERSION = '0.63';
 
 =head1 SYNOPSIS
 
@@ -200,7 +200,7 @@ This is mostly useful for (future at the moment) anonymizations.
 
 sub as_text {
     my $self = shift;
-    return $self->top_node->as_text( );
+    return $self->top_node->as_text();
 }
 
 =head2 anonymize

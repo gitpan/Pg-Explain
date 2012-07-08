@@ -9,11 +9,11 @@ Pg::Explain::FromText - Parser for text based explains
 
 =head1 VERSION
 
-Version 0.62
+Version 0.63
 
 =cut
 
-our $VERSION = '0.62';
+our $VERSION = '0.63';
 
 =head1 SYNOPSIS
 
@@ -149,7 +149,7 @@ sub parse_source {
             next LINE;
         }
         elsif ( $line =~ m{ \A (\s*) CTE \s+ (\S+) \s* \z }xms ) {
-            my ($prefix, $cte_name) = ( $1, $2);
+            my ( $prefix, $cte_name ) = ( $1, $2 );
 
             my @remove_elements = grep { $_ >= length $prefix } keys %element_at_depth;
             delete @element_at_depth{ @remove_elements } unless 0 == scalar @remove_elements;

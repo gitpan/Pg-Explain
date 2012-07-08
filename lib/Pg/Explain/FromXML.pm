@@ -10,11 +10,11 @@ Pg::Explain::FromXML - Parser for explains in XML format
 
 =head1 VERSION
 
-Version 0.62
+Version 0.63
 
 =cut
 
-our $VERSION = '0.62';
+our $VERSION = '0.63';
 
 =head1 SYNOPSIS
 
@@ -39,17 +39,17 @@ sub normalize_node_struct {
     }
 
     my $subplans = [];
-    if (
-        ( $struct->{'Plans'} ) &&
-        ( $struct->{'Plans'}->{'Plan'} )
-    ) {
-        if ('HASH' eq ref $struct->{'Plans'}->{'Plan'}) {
-            push @{ $subplans} , $struct->{'Plans'}->{'Plan'};
-        } else {
-            $subplans = $struct->{'Plans'}->{'Plan'};
+    if (   ( $struct->{ 'Plans' } )
+        && ( $struct->{ 'Plans' }->{ 'Plan' } ) )
+    {
+        if ( 'HASH' eq ref $struct->{ 'Plans' }->{ 'Plan' } ) {
+            push @{ $subplans }, $struct->{ 'Plans' }->{ 'Plan' };
+        }
+        else {
+            $subplans = $struct->{ 'Plans' }->{ 'Plan' };
         }
     }
-    $struct->{'Plans'} = $subplans;
+    $struct->{ 'Plans' } = $subplans;
 
     return $struct;
 }

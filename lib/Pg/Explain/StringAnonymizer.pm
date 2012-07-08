@@ -11,11 +11,11 @@ Pg::Explain::StringAnonymizer - Class to anonymize sets of strings
 
 =head1 VERSION
 
-Version 0.62
+Version 0.63
 
 =cut
 
-our $VERSION = '0.62';
+our $VERSION = '0.63';
 
 =head1 SYNOPSIS
 
@@ -259,9 +259,9 @@ sub _stringify {
     my $self = shift;
 
     for my $key ( keys %{ $self->{ 'strings' } } ) {
-        my $ints = $self->{'strings'}->{ $key };
+        my $ints = $self->{ 'strings' }->{ $key };
         my @words = map { $self->_word( $_ ) } @{ $ints };
-        $self->{'strings'}->{ $key } = join( '_', @words );
+        $self->{ 'strings' }->{ $key } = join( '_', @words );
     }
 }
 
