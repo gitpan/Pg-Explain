@@ -1,4 +1,5 @@
 package Pg::Explain;
+use v5.6;
 use strict;
 use autodie;
 use Carp;
@@ -10,11 +11,11 @@ Pg::Explain - Object approach at reading explain analyze output
 
 =head1 VERSION
 
-Version 0.66
+Version 0.67
 
 =cut
 
-our $VERSION = '0.66';
+our $VERSION = '0.67';
 
 =head1 SYNOPSIS
 
